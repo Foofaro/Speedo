@@ -539,12 +539,19 @@ function renderAll(skipScenes){if(!W)return;renderRide();renderWidgets();renderA
 
 /* ---------- GPS speed ---------- */
 function hav(a,b){const r=6371e3,t=Math.PI/180,dl=(b.lat-a.lat)*t,dn=(b.lon-a.lon)*t,x=Math.sin(dl/2)**2+Math.cos(a.lat*t)*Math.cos(b.lat*t)*Math.sin(dn/2)**2;return 2*r*Math.asin(Math.sqrt(x))}
-let wake=null;async function keepAwake(){try{wake=await navigator.wakeLock?.request('screen')}catch(e){}}
-document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible'&&SP.watch!=null)keepAwake()});
+/* always-on display: hold a screen wake lock for as long as the app is open */
+let wake=null,wakeBusy=false;
+async function keepAwake(){if(!('wakeLock' in navigator)||wakeBusy||(wake&&!wake.released)||document.visibilityState!=='visible')return;
+  wakeBusy=true;try{wake=await navigator.wakeLock.request('screen');wake.addEventListener('release',()=>{wake=null;setTimeout(keepAwake,1000)})}catch(e){wake=null}finally{wakeBusy=false}}
+document.addEventListener('visibilitychange',keepAwake);
+window.addEventListener('pageshow',keepAwake);window.addEventListener('focus',keepAwake);
+/* some browsers only grant the lock after a touch, so also try on every tap until it holds */
+['pointerdown','touchend','click','keydown'].forEach(ev=>document.addEventListener(ev,keepAwake,{passive:true,capture:true}));
+setInterval(keepAwake,15000);keepAwake();
 function startGPS(){
-  if(SP.watch!=null){navigator.geolocation.clearWatch(SP.watch);SP.watch=null;SP.v=0;$('#gpsBtn').textContent='Start GPS';setStatus('GPS stopped.');try{wake&&wake.release()}catch(e){}return}
+  if(SP.watch!=null){navigator.geolocation.clearWatch(SP.watch);SP.watch=null;SP.v=0;$('#gpsBtn').textContent='Start GPS';setStatus('GPS stopped.');return}
   if(!('geolocation' in navigator)){setStatus('This browser has no GPS access. Try Demo ride.');return}
-  stopDemo();setStatus('Waiting for a GPS fix…');$('#gpsBtn').textContent='Stop GPS';keepAwake();
+  stopDemo();setStatus('Waiting for a GPS fix…');$('#gpsBtn').textContent='Stop GPS';
   try{SP.watch=navigator.geolocation.watchPosition(onPos,onErr,{enableHighAccuracy:true,maximumAge:0,timeout:20000})}catch(e){onErr(e)}}
 function onPos(p){const c=p.coords,cur={lat:c.latitude,lon:c.longitude,t:p.timestamp};let v=(c.speed!=null&&isFinite(c.speed)&&c.speed>=0)?c.speed*3.6:null;
   if(SP.last){const d=hav(SP.last,cur),dt=(cur.t-SP.last.t)/1000;if(v==null&&dt>0)v=d/dt*3.6;if(dt>0&&d>3&&c.accuracy<50&&d/dt<90)SP.trip+=d}
