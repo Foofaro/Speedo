@@ -2,10 +2,16 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
 <meta name="theme-color" content="#f2ad3e">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Speedo">
+<meta name="format-detection" content="telephone=no">
+<link rel="apple-touch-icon" href="icon-180.png">
+<link rel="icon" type="image/png" href="icon-192.png">
+<link rel="manifest" href="manifest.json">
 <title>Wheel-Wise Weather</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -22,7 +28,8 @@ TYPE   Anton for giant numerals, Archivo for titles, IBM Plex Mono for data rows
   --num:'Anton',Impact,'Arial Narrow',sans-serif;--mono:'IBM Plex Mono',ui-monospace,Menlo,monospace}
 *{box-sizing:border-box;min-width:0;-webkit-tap-highlight-color:transparent}
 html,body{height:100%}
-body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.45 'Archivo',system-ui,sans-serif;overflow:hidden;transition:background .5s,color .5s}
+html,body{overscroll-behavior:none}
+body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.45 'Archivo',system-ui,sans-serif;overflow:hidden;touch-action:manipulation;-webkit-user-select:none;user-select:none;-webkit-touch-callout:none;-webkit-text-size-adjust:100%;transition:background .5s,color .5s}
 button{font:inherit;color:inherit;cursor:pointer}
 .mono{font-family:var(--mono)}
 .app{max-width:500px;position:relative;height:100dvh;margin:0 auto;display:flex;flex-direction:column;padding-top:env(safe-area-inset-top)}
@@ -57,7 +64,7 @@ main{flex:1;position:relative;overflow:hidden}
 .hb-chip{position:absolute;top:0;transform:translateX(-50%);font:400 19px/1 var(--num);white-space:nowrap}
 .hb-chip::after{content:'';display:block;width:2px;height:6px;margin:2px auto 0;background:currentColor;opacity:.5}
 .hb-lab{display:flex;justify-content:space-between;font:500 10px var(--mono);color:var(--muted);margin-top:5px}
-.stats{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;margin-top:16px;text-align:center}
+.stats{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;margin-top:16px;text-align:center}
 .stats div{background:var(--card);border-radius:14px;padding:8px 4px}
 .stats small{display:block;font-size:10px;color:var(--muted);letter-spacing:.06em}
 .stats b{font:400 24px/1.1 var(--num);font-variant-numeric:tabular-nums}
@@ -198,6 +205,7 @@ body.ui.mode-wx .back-btn,body.ui.mode-speed .back-btn{top:auto;bottom:calc(env(
         <div><small>MAX KM/H</small><b id="maxSpd">0</b></div>
         <div><small>TRIP KM</small><b id="trip">0.00</b></div>
         <div><small>GPS ± M</small><b id="acc">—</b></div>
+        <div><small>SCREEN</small><b id="scr">—</b></div>
       </div>
       <div class="actions">
         <button class="btn primary" id="gpsBtn">Start GPS</button>
@@ -539,9 +547,22 @@ function renderAll(skipScenes){if(!W)return;renderRide();renderWidgets();renderA
 
 /* ---------- GPS speed ---------- */
 function hav(a,b){const r=6371e3,t=Math.PI/180,dl=(b.lat-a.lat)*t,dn=(b.lon-a.lon)*t,x=Math.sin(dl/2)**2+Math.cos(a.lat*t)*Math.cos(b.lat*t)*Math.sin(dn/2)**2;return 2*r*Math.asin(Math.sqrt(x))}
-/* always-on display: hold a screen wake lock for as long as the app is open */
+/* always-on display, two layers:
+   1. Screen Wake Lock API (iOS 16.4+ Safari, 18.4+ home-screen apps)
+   2. a tiny silent looping inline video, which iOS treats as media playback and so never auto-locks
+      (technique and clip from NoSleep.js, MIT licence). Covers older iOS and home-screen apps where the lock is ignored. */
 let wake=null,wakeBusy=false;
-async function keepAwake(){if(!('wakeLock' in navigator)||wakeBusy||(wake&&!wake.released)||document.visibilityState!=='visible')return;
+const NOSLEEP_MP4='data:video/mp4;base64,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';
+const nsv=document.createElement('video');
+nsv.muted=true;nsv.defaultMuted=true;nsv.loop=true;nsv.autoplay=true;nsv.preload='auto';
+['muted','playsinline','webkit-playsinline','autoplay','loop'].forEach(a=>nsv.setAttribute(a,''));nsv.setAttribute('title','Speedo');nsv.setAttribute('aria-hidden','true');
+nsv.style.cssText='position:fixed;left:0;bottom:0;width:2px;height:2px;opacity:.01;pointer-events:none;z-index:-1';
+nsv.src=NOSLEEP_MP4;document.body.appendChild(nsv);
+nsv.addEventListener('timeupdate',()=>{if(nsv.currentTime>.5)nsv.currentTime=Math.random()});
+nsv.addEventListener('pause',()=>setTimeout(playNoSleep,500));
+function playNoSleep(){if(document.visibilityState!=='visible'||!nsv.paused)return;const pr=nsv.play();pr&&pr.catch(()=>{})}
+const screenOn=()=>!!(wake&&!wake.released)||!nsv.paused;
+async function keepAwake(){playNoSleep();if(!('wakeLock' in navigator)||wakeBusy||(wake&&!wake.released)||document.visibilityState!=='visible')return;
   wakeBusy=true;try{wake=await navigator.wakeLock.request('screen');wake.addEventListener('release',()=>{wake=null;setTimeout(keepAwake,1000)})}catch(e){wake=null}finally{wakeBusy=false}}
 document.addEventListener('visibilitychange',keepAwake);
 window.addEventListener('pageshow',keepAwake);window.addEventListener('focus',keepAwake);
@@ -593,7 +614,7 @@ $('#backBtn').onclick=()=>setMode('dual');
 function setUI(on){document.body.classList.toggle('ui',on);$('#uiBtn').setAttribute('aria-expanded',on);$('#uiBtn').setAttribute('aria-label',on?'Hide extras':'Show everything');
   if(!on)showPage('ride');requestAnimationFrame(()=>{fitSpeed();resizeGL()})}
 $('#uiBtn').onclick=()=>setUI(!document.body.classList.contains('ui'));
-let dotState=null;function updDot(){const warn=!W||W.demo||(SP.watch==null&&!SP.demo);if(warn!==dotState){dotState=warn;$('#uiBtn').classList.toggle('warn',warn)}}
+let scrState=null,dotState=null;function updDot(){const on=screenOn();if(on!==scrState){scrState=on;$('#scr').textContent=on?'ON':'TAP';}const warn=!W||W.demo||(SP.watch==null&&!SP.demo);if(warn!==dotState){dotState=warn;$('#uiBtn').classList.toggle('warn',warn)}}
 
 /* ---------- controls ---------- */
 $('#pRange').oninput=e=>{P.sel=+e.target.value;renderPrecip()};
@@ -620,8 +641,8 @@ applyTheme();renderThemes();initGL();
 W=demoData();renderAll();
 const start=(location.hash||'').slice(1);if(['precip','widgets','moon','alerts','style'].includes(start)){setUI(true);showPage(start)}else showPage('ride');
 requestAnimationFrame(loop);
-setStatus('Showing demo data. Tap Start GPS for your live speed and local weather.');
-(async()=>{try{const st=await navigator.permissions?.query({name:'geolocation'});if(st&&st.state==='granted')startGPS()}catch(e){}})();
+setStatus('Starting GPS…');
+(async()=>{let st=null;try{st=await navigator.permissions?.query({name:'geolocation'})}catch(e){}if(!st||st.state!=='denied')startGPS()})();
 setInterval(()=>{if(W&&!W.demo&&Date.now()-W.updated>6e5)loadWeather(W.lat,W.lon)},60000);
 }
 </script>
